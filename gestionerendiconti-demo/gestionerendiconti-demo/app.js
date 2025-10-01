@@ -70,6 +70,7 @@ const previewPDFBtn = byId('previewPDF');
 const resetDataBtn = byId('resetData');
 const showDiagBtn = byId('showDiag');
 const debugInfo = byId('debugInfo');
+const previewPDFHtmlBtn = byId('previewPDFHtml');
 
 let chart; // Chart.js instance
 
@@ -367,7 +368,8 @@ function importCSV(rows) {
   renderAll();
 }
 
-function toPDF(record) {
+// Build PDF HTML once so we can preview or export consistently
+function buildPDFHTML(record) {
   const p = getPropertyById(record.propertyId);
   const calc = compute({
     airbnb: record.airbnb, pulizie: record.pulizie, altreSpese: record.altreSpese || 0,
@@ -456,9 +458,14 @@ function toPDF(record) {
     </table>
     ${notesBlock}`;
 
-  pdfContainer.style.display = 'block';
   const content = `<div style="padding:16px;background:#ffffff;color:#111">${header}${table}</div>`;
-  pdfContainer.innerHTML = cover + content;
+  return cover + content;
+}
+
+function toPDF(record) {
+  const html = buildPDFHTML(record);
+  pdfContainer.style.display = 'block';
+  pdfContainer.innerHTML = html;
 
   const opt = {
     margin:       10,
@@ -593,6 +600,30 @@ if (previewPDFBtn) {
       notes: (notesEl?.value || '').trim(),
     };
     toPDF(temp);
+  });
+}
+
+// Show HTML preview of the PDF content (useful for layout/debug)
+if (previewPDFHtmlBtn) {
+  previewPDFHtmlBtn.addEventListener('click', () => {
+    if (!recordProperty.value) { alert('Seleziona un immobile nella sezione 2'); return; }
+    const temp = {
+      id: 'preview',
+      propertyId: recordProperty.value,
+      month: parseInt(recordMonth.value, 10),
+      year: parseInt(recordYear.value, 10),
+      airbnb: parseNum(airbnb.value),
+      pulizie: parseNum(pulizie.value),
+      altreSpese: parseNum(altreSpese.value),
+      notes: (notesEl?.value || '').trim(),
+    };
+    const html = buildPDFHTML(temp);
+    pdfContainer.style.display = 'block';
+    pdfContainer.innerHTML = html;
+    const status = document.getElementById('statusBar');
+    if (status) status.textContent = 'Anteprima HTML del PDF mostrata';
+    const y = pdfContainer.getBoundingClientRect().top + window.scrollY - 20;
+    window.scrollTo({ top: y, behavior: 'smooth' });
   });
 }
 
