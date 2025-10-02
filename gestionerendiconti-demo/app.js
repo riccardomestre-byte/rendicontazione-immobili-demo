@@ -70,6 +70,7 @@ const previewPDFBtn = byId('previewPDF');
 const resetDataBtn = byId('resetData');
 const showDiagBtn = byId('showDiag');
 const debugInfo = byId('debugInfo');
+const previewPDFHtmlBtn = byId('previewPDFHtml');
 
 let chart; // Chart.js instance
 
@@ -367,7 +368,8 @@ function importCSV(rows) {
   renderAll();
 }
 
-function toPDF(record) {
+// Build PDF HTML once so we can preview or export consistently
+function buildPDFHTML(record) {
   const p = getPropertyById(record.propertyId);
   const calc = compute({
     airbnb: record.airbnb, pulizie: record.pulizie, altreSpese: record.altreSpese || 0,
@@ -376,40 +378,39 @@ function toPDF(record) {
   const color = brand.color || '#487667';
   const name = brand.name || 'Gestione Rendiconti';
 
-  // Cover page
+  // Page 1: compact cover to avoid page split
   const cover = `
-    <div style="page-break-after:always;padding:0;margin:0">
-      <div style="position:relative;border:1px solid #e5e7eb;">
-        <div style="background:${color}15;height:120px;clip-path:polygon(0 0,100% 0,100% 70%,0 100%);"></div>
-        <div style="position:absolute;top:16px;right:16px;background:white;border-radius:999px;padding:6px;border:1px solid #e5e7eb;">
-          ${logoDataUrl ? `<img src="${logoDataUrl}" alt="logo" style="height:36px"/>` : ''}
+    <div style="page-break-after:always;padding:16px;margin:0;background:#ffffff;color:#111;page-break-inside:avoid">
+      <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#ffffff;page-break-inside:avoid">
+        <div style="background:${color}26;height:96px;display:flex;align-items:center;justify-content:flex-end;padding:10px">
+          ${logoDataUrl ? `<img src="${logoDataUrl}" alt="logo" style="height:32px"/>` : ''}
         </div>
-        <div style="padding:16px 16px 0 16px">
+        <div style="padding:16px">
           <div style="font-size:22px;font-weight:700;color:#111">Report mensile</div>
           <div style="color:#374151">${months[record.month]} ${record.year}</div>
           <div style="margin-top:10px;color:#111;font-weight:600">${p?.ownerDisplay || ''}</div>
           <div style="color:#374151">${p?.address || ''}</div>
+          ${p?.cover ? `<img src="${p.cover}" alt="cover" style="display:block;width:100%;max-height:220px;object-fit:cover;margin-top:12px;border:1px solid #e5e7eb;page-break-inside:avoid"/>` : ''}
         </div>
-        ${p?.cover ? `<img src="${p.cover}" alt="cover" style="width:100%;height:360px;object-fit:cover;margin-top:10px"/>` : ''}
       </div>
     </div>`;
 
   const header = `
-    <div class="pdf-header">
-      <div class="pdf-brand">
-        ${logoDataUrl ? `<img src="${logoDataUrl}" alt="logo" style="height:36px"/>` : ''}
+    <div class="pdf-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="pdf-brand" style="display:flex;align-items:center;gap:10px">
+        ${logoDataUrl ? `<img src="${logoDataUrl}" alt="logo" style="height:26px"/>` : ''}
         <div>
-          <div class="pdf-title">${name}</div>
+          <div class="pdf-title" style="font-size:18px;font-weight:700;color:#111">${name}</div>
           <div style="font-size:12px;color:#6b7280">Rendiconto Mensile</div>
         </div>
       </div>
-      <div class="dot" style="background:${color}"></div>
+      <div class="dot" style="width:10px;height:10px;border-radius:50%;background:${color}"></div>
     </div>`;
 
   const notesBlock = record.notes ? `<div style="margin-top:10px"><div style="color:${color};font-weight:700;margin-bottom:6px">NOTE</div><div style="color:#111;white-space:pre-wrap">${record.notes}</div></div>` : '';
 
   const table = `
-    <table class="pdf-table" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:12px;color:#111">
+    <table class="pdf-table" style="width:100%;border-collapse:collapse;margin-top:14px;font-size:12px;color:#111;background:#ffffff;page-break-inside:auto">
       <tr>
         <td style="border:1px solid #cbd5e1;padding:8px;font-weight:700">Immobile</td>
         <td style="border:1px solid #cbd5e1;padding:8px">${p?.name || ''}</td>
@@ -457,14 +458,22 @@ function toPDF(record) {
     </table>
     ${notesBlock}`;
 
+  const content = `<div style="padding:16px;background:#ffffff;color:#111;page-break-inside:avoid">${header}${table}</div>`;
+  return cover + content;
+}
+
+function toPDF(record) {
+  const html = buildPDFHTML(record);
   pdfContainer.style.display = 'block';
-  pdfContainer.innerHTML = cover + header + table;
+  pdfContainer.innerHTML = html;
 
   const opt = {
     margin:       10,
-    filename:     `Rendiconto_${(p?.name||'immobile').replace(/\s+/g,'_')}_${record.year}_${record.month+1}.pdf`,
+    // Recompute property locally to avoid undefined variable
+    filename:     (()=>{ const pr = getPropertyById(record.propertyId); const nm = (pr?.name||'immobile').replace(/\s+/g,'_'); return `Rendiconto_${nm}_${record.year}_${record.month+1}.pdf`; })(),
     image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2 },
+    html2canvas:  { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+    pagebreak:    { mode: ['css', 'legacy'] },
     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
   };
   html2pdf().set(opt).from(pdfContainer).save().then(()=>{
@@ -592,6 +601,30 @@ if (previewPDFBtn) {
       notes: (notesEl?.value || '').trim(),
     };
     toPDF(temp);
+  });
+}
+
+// Show HTML preview of the PDF content (useful for layout/debug)
+if (previewPDFHtmlBtn) {
+  previewPDFHtmlBtn.addEventListener('click', () => {
+    if (!recordProperty.value) { alert('Seleziona un immobile nella sezione 2'); return; }
+    const temp = {
+      id: 'preview',
+      propertyId: recordProperty.value,
+      month: parseInt(recordMonth.value, 10),
+      year: parseInt(recordYear.value, 10),
+      airbnb: parseNum(airbnb.value),
+      pulizie: parseNum(pulizie.value),
+      altreSpese: parseNum(altreSpese.value),
+      notes: (notesEl?.value || '').trim(),
+    };
+    const html = buildPDFHTML(temp);
+    pdfContainer.style.display = 'block';
+    pdfContainer.innerHTML = html;
+    const status = document.getElementById('statusBar');
+    if (status) status.textContent = 'Anteprima HTML del PDF mostrata';
+    const y = pdfContainer.getBoundingClientRect().top + window.scrollY - 20;
+    window.scrollTo({ top: y, behavior: 'smooth' });
   });
 }
 
